@@ -1,0 +1,17 @@
+---
+title: "Lending_Club"
+author: "Santiago Torres"
+date: "December 18, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+defaults <- read.csv('LoanStats3a.csv')
+summary(defaults)
+```
