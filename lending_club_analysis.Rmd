@@ -7,11 +7,207 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+setwd("C:\\Users\\TORRES_SANT\\Documents\\Programming\\Data\\lending_club_analysis")
 ```
 
-## R Markdown
+# Read data
 
 ```{r}
-defaults <- read.csv('LoanStats3a.csv')
-summary(defaults)
+defaults <- read.csv('cleaned_up.csv')
+summary(defaults$loan_status)
+```
+I only care if a loan has been charged off or defaulted so i will drop the values that arent current, fully paid, charged off, or default
+
+```{r}
+keep <- defaults$loan_status %in% c('Charged Off', 'Current', 'Default', 'Fully Paid')
+ndefaults <- defaults[keep, ]
+binaryResponse <- mapply(function(x) { 
+  x %in% c('Current','Fully Paid')
+  }, ndefaults$loan_status)
+ndefaults$loan_status <- binaryResponse
+summary(ndefaults$loan_status)
+```
+
+These are all individual accounts that meet Lending Club's policies with initial listing status - F not on a payment plan
+
+I want to predict False in loan_status
+
+## Response
+
+`loan_status` - Categorical response with 2 levels:
+
+    {
+    True: Loan is current or fully paid
+    False: Loan is charged off or in default
+    }
+
+## Predictors
+
+```{r}
+names(ndefaults)
+length(names(ndefaults))
+```
+
+We still have a lot of predictors here lets try to consolidate some of them
+
+### Quantitative
+
+`loan_amt`
+`int_rate`
+`installment`
+`annual_inc`
+`dti`
+`delinq_2yrs`
+`earliest_cr_line` (length of time)
+`fico_range_low`
+`fico_range_high` (take avg)
+`inq_last_6mths`
+`mths_since_last_delinq`
+`mths_since_last_record`
+`open_acc`
+`pub_rec`
+`revol_util`
+`total_acc`
+
+We only need one predictor representing the loan amount to avoid multicollinearity 
+```{r}
+ndefaults$funded_amnt <- NULL
+ndefaults$funded_amnt_inv <- NULL
+```
+
+Drop `revol_bal` because `revol_util` is a better representation of usage (ratio)
+```{r}
+ndefaults$revol_bal <- NULL
+```
+
+We will average FICO scores when they got the loan
+
+### Categorical
+
+`term`
+{
+36 months
+60 months
+}
+make sure to factor categorical variables
+```{r}
+ndefaults$term <- factor(ndefaults$term)
+```
+
+`emp_title` is outside the scope of our investigation since it would require text analysis; `desc` and `title` are also out of scope.
+
+```{r}
+ndefaults$emp_title <- NULL
+ndefaults$desc <- NULL
+ndefaults$title <- NULL
+```
+
+`grade`
+`subgrade`
+* `emp_length`
+
+* `home_ownership`
+  + Rent; Mortgage; Own
+
+`verification_status`
+`issue_d`
+`purpose`
+`zip_code` is a more granular version of `addr_state`
+```{r}
+ndefaults$zip_code <- NULL
+```
+`addr_state`
+
+Whittling down predictors gets harder so it is time to begin some analysis
+
+Quantitative
+`loan_amt`
+`int_rate`
+`installment`
+`annual_inc`
+
+```{r}
+pairs(~ loan_amnt + int_rate + installment + annual_inc, data=ndefaults, main="Scatterplot Matrix of Defaults with Quantitative Variables")
+```
+
+`dti`
+`delinq_2yrs`
+`earliest_cr_line` (length of time)
+`fico_range_low`
+`fico_range_high` (take avg)
+`inq_last_6mths`
+`mths_since_last_delinq`
+`mths_since_last_record`
+`open_acc`
+`pub_rec`
+`revol_util`
+`total_acc`
+
+```{r}
+hist(ndefaults$loan_amnt, main="Bill Amounts")
+```
+
+#### KNN
+
+```{r eval=FALSE}
+library(DMwR)
+dknn <- ndefaults only quantile
+
+# standardize quant
+
+dknn[ ,1:x] <- scale(dknn[ ,1:x])
+
+# partition
+
+idxs = sample(1:nrow(defaults), as.integer(0.8*nrow(defaults)))
+
+traindefaults <- defaults[idxs, ]
+testdefaults <- defaults[-idxs, ]
+
+nn7 <- kNN(loan_status ~ quants, traindefaults, testdefaults, norm=FALSE, k=7)
+
+table(testdefaults[ ,"DEFAULT"], nn7)
+```
+
+#### Naive Bayes
+
+#### Classification Tree
+
+```{r eval=FALSE}
+library(rpart)
+fit <- rpart(loan_status ~., method="class", data=ndefaults, control=rpart.control(minsplit=1, xval=10))
+printcp(fit)
+
+plot(fit, uniform=TRUE, main="UnPruned Classification Tree for defaults")
+```
+
+Prune
+```{r eval=FALSE}
+pfit<- prune(fit, cp=fit$cptable[which.min(fit$cptable[,"xerror"]),"CP"])
+printcp(pfit) # display the results
+
+plot(pfit, uniform=TRUE, main="Pruned Classification Tree for defaults")
+```
+
+#### Logistic Regression
+
+```{r}
+library(MASS)
+library(bestglm)
+
+train <- ndefaults[1:(floor(.80 * nrow(ndefaults))), ]
+test <- ndefaults[(ceiling(.80 * nrow(ndefaults))):nrow(ndefaults), ]
+#Stepwise Regression (AIC Criterion)
+# fit <- glm(loan_status ~ .,data=train,family=binomial(link='logit')) # gotta fix a lot of the categorical predictors  and some quants are read as cat
+fit <- glm(loan_status ~ loan_amnt + term + annual_inc + home_ownership + verification_status + dti + delinq_2yrs + open_acc + total_acc,data=train,family=binomial(link='logit'))
+summary(fit)
+# step <- stepAIC(fit, direction="backward")
+# step$anova # display results
+```
+
+```{r eval=FALSE}
+#All Subset Selection (AIC criterion)
+out <- bestglm(ndefaults, family = binomial, IC = "AIC", method = "exhaustive")
+#show results for the top model 
+out
 ```
